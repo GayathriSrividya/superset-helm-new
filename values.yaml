@@ -1,3 +1,13 @@
+# global:
+postgres:
+  adminUser: "postgres"
+  adminPassword: "postgres"
+  db_port: 5432
+  superset:
+    db_name: "superset"
+    db_username: "superset"
+    db_password: "superset$123"
+
 replicaCount: 1
 oauth_enabled: False
 
@@ -6,7 +16,7 @@ adminUser:
   firstname: "Superset"
   lastname: "Admin"
   email: "admin@superset.com"
-  password: "admin$123"
+  password: "admin123"
 
 oauth:
   enabled: false
@@ -16,15 +26,7 @@ oauth:
   whitelist_domain: ""
   user_registration_role: "Gamma"
 
-postgres:
-  db_url: "postgres_db_url"
-  db_port: "5432"
-  superset:
-    db_name: "superset"
-    db_username: "superset"
-    db_password: "superset$123"
-
-
+runAsUser: 1000
 
 # Install additional packages and do any other bootstrap configuration in this script
 # For production clusters it's recommended to build own image with this step done in CI
@@ -35,17 +37,17 @@ bootstrapScript: |
     sqlalchemy==1.3.24 \
     psycopg2==2.8.5 \
     redis==3.2.1 && \
-  if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ runAsUser }}" > ~/bootstrap; fi
+  if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap; fi
 
 ## The name of the secret which we will use to generate a superset_config.py file
 ## Note: this secret must have the key superset_config.py in it and can include other files as well
 ##
-configFromSecret: '{{ "{{" }} template "superset.fullname" . {{ "}}" }}-config'
+configFromSecret: '{{ template "superset.fullname" . }}-config'
 
 ## The name of the secret which we will use to populate env vars in deployed pods
 ## This can be useful for secret keys, etc.
 ##
-envFromSecret: '{{ "{{" }} template "superset.fullname" . {{ "}}" }}-env'
+envFromSecret: '{{ template "superset.fullname" . }}-env'
 ## This can be a list of template strings
 envFromSecrets: []
 
@@ -100,11 +102,11 @@ configOverrides:
       'CACHE_TYPE': 'redis',
       'CACHE_DEFAULT_TIMEOUT': 600,
       'CACHE_KEY_PREFIX': 'superset_',
-      'CACHE_REDIS_URL': 'redis://{{ "{{" }} template "superset.fullname" . {{ "}}" }}-redis-headless:6379/1'
+      'CACHE_REDIS_URL': 'redis://{{ template "superset.fullname" . }}-redis-headless:6379/1'
     }
 
   sql_alchemy_config: |
-    SQLALCHEMY_DATABASE_URI = 'postgresql://{{ postgres.superset.db_username }}:{{ postgres.superset.db_password }}@{{ postgres.db_url }}/{{ postgres.superset.db_name }}'
+    SQLALCHEMY_DATABASE_URI = 'postgresql://{{ tpl .Values.postgres.superset.db_username . }}:{{ tpl .Values.postgres.superset.db_password . }}@{{ template "superset.fullname" . }}-postgresql-headless:5432/{{ tpl .Values.postgres.superset.db_name . }}'
     SQLALCHEMY_TRACK_MODIFICATIONS = True
     SECRET_KEY = 'thisISaSECRET_1234'
 
@@ -156,7 +158,7 @@ imagePullSecrets: []
 service:
   type: LoadBalancer
   port: 8088
-  annotations: ""
+  annotations: {}
 
 ingress:
   enabled: false
@@ -192,22 +194,22 @@ resources: {}
 ## Superset node configuration
 supersetNode:
   connections:
-    redis_host: '{{ "{{" }} template "superset.fullname" . {{ "}}" }}-redis-headless'
+    redis_host: '{{ template "superset.fullname" . }}-redis-headless'
     redis_port: "6379"
-    db_host: "{{ .Values.postgres.db_url }}"
+    db_host: '{{ template "superset.fullname" . }}-postgres-headless'
     db_port: "{{ .Values.postgres.db_port }}"
     db_user: "{{ .Values.postgres.superset.db_username }}"
     db_pass: "{{ .Values.postgres.superset.db_password }}"
     db_name: "{{ .Values.postgres.superset.db_name }}"
   forceReload: false # If true, forces deployment to reload on each upgrade
-  initContainers:
-    - name: wait-for-postgres
-      image: busybox:latest
-      imagePullPolicy: IfNotPresent
-      envFrom:
-        - secretRef:
-            name: '{{ "{{" }} tpl .Values.envFromSecret . {{ "}}" }}'
-      command: [ "/bin/sh", "-c", "until nc -zv $DB_HOST $DB_PORT -w1; do echo 'waiting for db'; sleep 1; done" ]
+  # initContainers:
+  #   - name: wait-for-postgres
+  #     image: busybox:latest
+  #     imagePullPolicy: IfNotPresent
+  #     envFrom:
+  #       - secretRef:
+  #           name: '{{ tpl .Values.envFromSecret . }}'
+  #     command: [ "/bin/sh", "-c", "until nc -zv $DB_HOST $DB_PORT -w1; do echo 'waiting for db'; sleep 1; done" ]
   ## Annotations to be added to supersetNode deployment
   deploymentAnnotations: {}
   ## Annotations to be added to supersetNode pods
@@ -229,24 +231,24 @@ init:
   command:
     - "/bin/sh"
     - "-c"
-    - ". {{ configMountPath }}/superset_bootstrap.sh; . {{ configMountPath }}/superset_init.sh"
+    - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; . {{ .Values.configMountPath }}/superset_init.sh"
   enabled: true
   createAdmin: true
-  initContainers:
-    - name: wait-for-postgres
-      image: busybox:latest
-      imagePullPolicy: IfNotPresent
-      envFrom:
-        - secretRef:
-            name: '{{ "{{" }} tpl .Values.envFromSecret . {{ "}}" }}'
-      command: [ "/bin/sh", "-c", "until nc -zv $DB_HOST $DB_PORT -w1; do echo 'waiting for db'; sleep 1; done" ]
+  # initContainers:
+  #   - name: wait-for-postgres
+  #     image: busybox:latest
+  #     imagePullPolicy: IfNotPresent
+  #     envFrom:
+  #       - secretRef:
+  #           name: '{{ tpl .Values.envFromSecret . }}'
+  #     command: [ "/bin/sh", "-c", "until nc -zv $DB_HOST $DB_PORT -w1; do echo 'waiting for db'; sleep 1; done" ]
   initscript: |-
     #!/bin/sh
     echo "Upgrading DB schema..."
     superset db upgrade
     echo "Initializing roles..."
     superset init
-    {{ "{{" }} if .Values.init.createAdmin {{ "}}" }}
+    {{ if .Values.init.createAdmin }}
     echo "Creating admin user..."
     superset fab create-admin \
                     --username {{ .Values.adminUser.username }} \
@@ -255,10 +257,10 @@ init:
                     --email {{ .Values.adminUser.email }} \
                     --password {{ .Values.adminUser.password }} \
                     || true
-    {{ "{{" }} end {{ "}}" }}
-    if [ -f "{{ extraConfigMountPath }}/import_datasources.yaml" ]; then
+    {{ end }}
+    if [ -f "{{ .Values.extraConfigMountPath }}/import_datasources.yaml" ]; then
       echo "Importing database connections.... "
-      superset import_datasources -p {{ extraConfigMountPath }}/import_datasources.yaml
+      superset import_datasources -p {{ .Values.extraConfigMountPath }}/import_datasources.yaml
     fi
 
 ## Configuration values for the Redis dependency.
@@ -310,7 +312,7 @@ postgresql:
   ##
   ## Use the PostgreSQL chart dependency.
   ## Set to false if bringing your own PostgreSQL.
-  enabled: false
+  enabled: true
   ##
   ## If you are bringing your own PostgreSQL, you should set postgresHost and
   ## also probably service.port, postgresqlUsername, postgresqlPassword, and postgresqlDatabase
@@ -319,15 +321,17 @@ postgresql:
   ## PostgreSQL port
   service:
     port: 5432
+
+  postgresqlPostgresPassword: "postgres"
   ## PostgreSQL User to create.
-  postgresqlUsername: "{{ .Values.postgres.superset.db_username }}"
+  postgresqlUsername: "superset"
   ##
   ## PostgreSQL Password for the new user.
   ## If not set, a random 10 characters password will be used.
-  postgresqlPassword: "{{ .Values.postgres.superset.db_password }}"
+  postgresqlPassword: "superset$123"
   ##
   ## PostgreSQL Database to create.
-  postgresqlDatabase: "{{ .Values.postgres.superset.db_name }}"
+  postgresqlDatabase: "superset"
   ##
   ## Persistent Volume Storage configuration.
   ## ref: https://kubernetes.io/docs/user-guide/persistent-volumes
