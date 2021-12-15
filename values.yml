@@ -146,8 +146,8 @@ configMountPath: "/etc/superset"
 extraConfigMountPath: "/app/configs"
 
 image:
-  repository: {{ apache_superset_image }}
-  tag: {{ apache_superset_image_version }}
+  repository: amancevice/superset
+  tag: 1.2.0
   pullPolicy: Always
 
 imagePullSecrets: []
