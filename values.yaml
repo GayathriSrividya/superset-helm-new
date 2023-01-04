@@ -1,4 +1,3 @@
-# global:
 postgres:
   adminUser: "postgres"
   adminPassword: "postgres"
@@ -6,17 +5,17 @@ postgres:
   superset:
     db_name: "superset"
     db_username: "superset"
-    db_password: "superset$123"
+    db_password: "superset"
 
 replicaCount: 1
 oauth_enabled: False
 
-adminUser:
-  username: "admin"
-  firstname: "Superset"
-  lastname: "Admin"
-  email: "admin@superset.com"
-  password: "admin123"
+# adminUser:
+#   username: "admin"
+#   firstname: "Superset"
+#   lastname: "Admin"
+#   email: "admin@superset.com"
+#   password: "admin123"
 
 oauth:
   enabled: false
@@ -32,11 +31,9 @@ runAsUser: 1000
 # For production clusters it's recommended to build own image with this step done in CI
 bootstrapScript: |
   #!/bin/bash
-  #rm -rf /var/lib/apt/lists/* && \
   pip install \
-    sqlalchemy==1.3.24 \
-    psycopg2==2.8.5 \
-    redis==3.2.1 && \
+    psycopg2-binary==2.9.1 \
+    redis==3.5.3 && \
   if [ ! -f ~/bootstrap ]; then echo "Running Superset with uid {{ .Values.runAsUser }}" > ~/bootstrap; fi
 
 ## The name of the secret which we will use to generate a superset_config.py file
@@ -53,7 +50,7 @@ envFromSecrets: []
 
 ## Extra environment variables that will be passed into pods
 ##
-extraEnv: {}
+extraEnv:
   # Extend timeout to allow long running queries.
   # GUNICORN_TIMEOUT: 300
 
@@ -94,62 +91,52 @@ configOverrides:
       "DASHBOARD_NATIVE_FILTERS": True,
       "DASHBOARD_CROSS_FILTERS": True,
       "DASHBOARD_NATIVE_FILTERS_SET": True,
-      "ENABLE_TEMPLATE_PROCESSING": True,
+      "ENABLE_TEMPLATE_PROCESSING": True
     }
 
   data_cache_config: |
-    DATA_CACHE_CONFIG = {
-      'CACHE_TYPE': 'redis',
+    from superset.superset_typing import CacheConfig
+    DATA_CACHE_CONFIG: CacheConfig = {
+      'CACHE_TYPE': 'RedisCache',
       'CACHE_DEFAULT_TIMEOUT': 600,
-      'CACHE_KEY_PREFIX': 'superset_',
-      'CACHE_REDIS_URL': 'redis://{{ template "superset.fullname" . }}-redis-headless:6379/1'
+      'CACHE_KEY_PREFIX': 'data_',
+      'CACHE_REDIS_URL': 'redis://{{ template "superset.fullname" . }}-redis-headless.{{ .Release.Namespace }}.svc.cluster.local:6379/1'
+    }
+
+  filter_cache_config: |
+    FILTER_STATE_CACHE_CONFIG: CacheConfig = {
+      'CACHE_TYPE': 'RedisCache',
+      'CACHE_DEFAULT_TIMEOUT': 600,
+      'CACHE_KEY_PREFIX': 'filter_',
+      'CACHE_REDIS_URL': 'redis://{{ template "superset.fullname" . }}-redis-headless.{{ .Release.Namespace }}.svc.cluster.local:6379/1',
+      # should the timeout be reset when retrieving a cached value
+      "REFRESH_TIMEOUT_ON_RETRIEVAL": True
+    }
+
+  explore_form_data_cache_config: |
+    EXPLORE_FORM_DATA_CACHE_CONFIG: CacheConfig = {
+        'CACHE_TYPE': 'RedisCache',
+        'CACHE_DEFAULT_TIMEOUT': 600,
+        'CACHE_KEY_PREFIX': 'explore_',
+        'CACHE_REDIS_URL': 'redis://{{ template "superset.fullname" . }}-redis-headless.{{ .Release.Namespace }}.svc.cluster.local:6379/1',
+        "REFRESH_TIMEOUT_ON_RETRIEVAL": True
     }
 
   sql_alchemy_config: |
-    SQLALCHEMY_DATABASE_URI = 'postgresql://{{ tpl .Values.postgres.superset.db_username . }}:{{ tpl .Values.postgres.superset.db_password . }}@{{ template "superset.fullname" . }}-postgresql-headless:5432/{{ tpl .Values.postgres.superset.db_name . }}'
+    SQLALCHEMY_DATABASE_URI = 'postgresql://{{ tpl .Values.postgres.superset.db_username . }}:{{ tpl .Values.postgres.superset.db_password . }}@{{ template "superset.fullname" . }}-postgresql-hl.{{ .Release.Namespace }}.svc.cluster.local:5432/{{ tpl .Values.postgres.superset.db_name . }}'
     SQLALCHEMY_TRACK_MODIFICATIONS = True
     SECRET_KEY = 'thisISaSECRET_1234'
 
-  #map_box_key: |
-  #  MAPBOX_API_KEY=''
-
-  oauth: |
-    from flask_appbuilder.security.manager import (AUTH_DB, AUTH_OAUTH)
-    AUTH_TYPE = AUTH_OAUTH
-
-    OAUTH_PROVIDERS = [
-      {
-          "name": "google",
-          "whitelist": [ "{{ .Values.oauth.email_whitelist_regex }}" ],
-          "icon": "fa-google",
-          "token_key": "access_token",
-          "remote_app": {
-              "client_id": "{{ .Values.oauth.client_id }}",
-              "client_secret": "{{ .Values.oauth.client_secret }}",
-              "api_base_url": "https://www.googleapis.com/oauth2/v2/",
-              "client_kwargs": {"scope": "email profile"},
-              "request_token_url": None,
-              "access_token_url": "https://accounts.google.com/o/oauth2/token",
-              "authorize_url": "https://accounts.google.com/o/oauth2/auth",
-              "authorize_params": {"hd": "{{ .Values.oauth.whitelist_domain }}"}
-          }
-      }
-    ]
-    # Map Authlib roles to superset roles
-    AUTH_ROLE_ADMIN = 'Admin'
-    AUTH_ROLE_PUBLIC = 'Public'
-    # Will allow user self registration, allowing to create Flask users from Authorized User
-    AUTH_USER_REGISTRATION = True
-    # The default user self registration role
-    AUTH_USER_REGISTRATION_ROLE = "{{ oauth.user_registration_role }}"
 
 configMountPath: "/etc/superset"
 
 extraConfigMountPath: "/app/configs"
 
 image:
-  repository: amancevice/superset
-  tag: 1.2.0
+  # repository: amancevice/superset
+  # tag: edge
+  repository: apache/superset
+  tag: latest
   pullPolicy: Always
 
 imagePullSecrets: []
@@ -234,6 +221,12 @@ init:
     - ". {{ .Values.configMountPath }}/superset_bootstrap.sh; . {{ .Values.configMountPath }}/superset_init.sh"
   enabled: true
   createAdmin: true
+  adminUser:
+    username: "admin"
+    firstname: "Superset"
+    lastname: "Admin"
+    email: "admin@superset.com"
+    password: "admin"
   # initContainers:
   #   - name: wait-for-postgres
   #     image: busybox:latest
@@ -251,11 +244,11 @@ init:
     {{ if .Values.init.createAdmin }}
     echo "Creating admin user..."
     superset fab create-admin \
-                    --username {{ .Values.adminUser.username }} \
-                    --firstname {{ .Values.adminUser.firstname }} \
-                    --lastname {{ .Values.adminUser.lastname }} \
-                    --email {{ .Values.adminUser.email }} \
-                    --password {{ .Values.adminUser.password }} \
+                    --username {{ .Values.init.adminUser.username }} \
+                    --firstname {{ .Values.init.adminUser.firstname }} \
+                    --lastname {{ .Values.init.adminUser.lastname }} \
+                    --email {{ .Values.init.adminUser.email }} \
+                    --password {{ .Values.init.adminUser.password }} \
                     || true
     {{ end }}
     if [ -f "{{ .Values.extraConfigMountPath }}/import_datasources.yaml" ]; then
@@ -300,6 +293,8 @@ redis:
       ## Access mode:
       accessModes:
       - ReadWriteOnce
+  replica:
+    replicaCount: 1
   ##
   ## Disable cluster management by default.
   cluster:
@@ -309,29 +304,36 @@ redis:
 ## Configuration values for the postgresql dependency.
 ## ref: https://github.com/kubernetes/charts/blob/master/stable/postgresql/README.md
 postgresql:
+  enabled: true
   ##
   ## Use the PostgreSQL chart dependency.
   ## Set to false if bringing your own PostgreSQL.
-  enabled: true
-  ##
-  ## If you are bringing your own PostgreSQL, you should set postgresHost and
-  ## also probably service.port, postgresqlUsername, postgresqlPassword, and postgresqlDatabase
-  ## postgresHost: "{{ postgres.db_url }}"
-  ##
-  ## PostgreSQL port
-  service:
-    port: 5432
+  auth:
+    ## @param auth.enablePostgresUser Assign a password to the "postgres" admin user. Otherwise, remote access will be blocked for this user
+    ##
+    enablePostgresUser: true
+    ## @param auth.postgresPassword Password for the "postgres" admin user. Ignored if `auth.existingSecret` with key `postgres-password` is provided
+    ##
+    postgresPassword: "postgres"
+    ## @param auth.username Name for a custom user to create
+    ##
+    username: "superset"
+    ## @param auth.password Password for the custom user to create. Ignored if `auth.existingSecret` with key `password` is provided
+    ##
+    password: "superset"
+    ## @param auth.database Name for a custom database to create
+    ##
+    database: "superset"
 
-  postgresqlPostgresPassword: "postgres"
-  ## PostgreSQL User to create.
-  postgresqlUsername: "superset"
-  ##
-  ## PostgreSQL Password for the new user.
-  ## If not set, a random 10 characters password will be used.
-  postgresqlPassword: "superset$123"
-  ##
-  ## PostgreSQL Database to create.
-  postgresqlDatabase: "superset"
+  service:
+    ## @param readReplicas.service.type Kubernetes Service type
+    ##
+    type: ClusterIP
+    ## @param readReplicas.service.ports.postgresql PostgreSQL service port
+    ##
+    ports:
+      postgresql: 5432
+
   ##
   ## Persistent Volume Storage configuration.
   ## ref: https://kubernetes.io/docs/user-guide/persistent-volumes
@@ -347,8 +349,8 @@ postgresql:
     accessModes:
       - ReadWriteOnce
 
-nodeSelector: {}
+  # nodeSelector: {}
 
-tolerations: []
+  # tolerations: []
 
-affinity: {}
+  # affinity: {}
