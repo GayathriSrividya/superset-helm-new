@@ -1,0 +1,10 @@
+settings for integration of superset and keycloak
+
+make sure cookies are allowed for both superset and keycloak
+
+create a client (admin-api in my case)->client authentication enabled
+dashboard->clients->give root url, redirect url, generate client secret and mention that in helmchart
+create user other than admin(I’ve created gayathri in my case)
+dashboard->clients->admin-api->clientscopes->admin-api-dedicated->add mapper->realm roles
+dashboard->realm roles->create role->role(superset-admin in my case)
+dashboard->users->gayathri(any user)->role mapping->superset-admin->save
